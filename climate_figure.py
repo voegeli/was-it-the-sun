@@ -105,6 +105,26 @@ quelccaya
             Precipitation" -- so it is plotted on its own axis in permil, never
             on the temperature axis, and never converted to degrees.
 
+recon_nh
+recon_sh
+  Hemispheric mean surface temperature reconstructions from real proxies,
+  100-member ensembles, 1000-1999/2000 AD, anomalies wrt 1000-1999.
+  Neukom et al. (2018) Nature Communications 9:5195, "Possible causes of data
+  model discrepancy in the temperature history of the last Millennium".
+  Proxy input is the PAGES 2k v2.0.0 database (PAGES2k Consortium 2017,
+  Scientific Data 4:170088).
+  URL:      https://www.ncei.noaa.gov/access/paleo-search/study/25455
+  File:     https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/neukom2018/
+            Real_proxy_recons/NH.txt  (and SH.txt)
+  Accessed: 2026-08-30
+  Note:     Semicolon separated, no header: column 1 is year CE, columns 2-101
+            are ensemble members. The loader takes the per-year ensemble MEDIAN;
+            the 5-95 percentile spread is computed separately and reported, so
+            the uncertainty is shown rather than hidden behind a single line.
+            These are hemispheric means. They are the comparison series for the
+            claim that the post-Maunder excursion is global; HadCRUT5 begins in
+            1850 and cannot address a 1680-1735 question.
+
 sunspots
   SILSO version 2.0 yearly mean total sunspot number, 1700-present.
   Clette & Lefevre (2016) Solar Physics 291:2629-2651.
@@ -162,6 +182,8 @@ CFG = {
     "co2_mlo": {"file": "co2_annmean_mlo.txt", "column": "mean"},
     "tsi": {"file": "nrl2_tsi_P1Y.csv", "column": "irradiance (W/m^2)"},
     "quelccaya": {"file": "quelccaya_q83summ.txt", "column": "O18"},
+    "recon_nh": {"file": "neukom2018_NH.txt", "column": "ensemble median"},
+    "recon_sh": {"file": "neukom2018_SH.txt", "column": "ensemble median"},
     "sunspots": {"file": "SN_y_tot_V2.0.txt", "column": "sn"},
 }
 
@@ -222,6 +244,20 @@ EXPECT = {
         "sha256": "feb80d6f979e2b9ec7cb4dfcb14c6353bf3dd2dae627d6ae8af1c0e53c8d67bc",
         "value_range": (-30.0, -5.0),  # permil VSMOW, tropical high-altitude ice
         "n_min": 350,
+    },
+    "recon_nh": {
+        "first_year": 1600,
+        "last_year_min": 1990,
+        "sha256": "74bca8db0ae2cd9193f34f8da1f21c12ee2aa8745e4059d1216075dfbf082ea1",
+        "value_range": (-1.5, 1.0),
+        "n_min": 380,
+    },
+    "recon_sh": {
+        "first_year": 1600,
+        "last_year_min": 1990,
+        "sha256": "25f6b96c0ea110c69b21b31c627a1ccd1894466a999b894a9acd8577ee36feab",
+        "value_range": (-1.5, 1.0),
+        "n_min": 380,
     },
     "sunspots": {
         "first_year": 1700,
@@ -370,6 +406,24 @@ def load_quelccaya(path: Path) -> pd.Series:
     return s[~s.index.duplicated(keep="first")].sort_index()
 
 
+def _load_recon_ensemble(path: Path) -> pd.DataFrame:
+    """Year-indexed frame of the 100 ensemble members. Semicolon separated, no header."""
+    d = pd.read_csv(path, sep=";", header=None)
+    if d.shape[1] < 50:
+        raise DataError(f"{path.name}: {d.shape[1]} columns, expected year + ~100 members.")
+    return pd.DataFrame(
+        d.iloc[:, 1:].astype(float).values, index=d.iloc[:, 0].astype(int).values
+    )
+
+
+def load_recon_nh(path: Path) -> pd.Series:
+    return _load_recon_ensemble(path).median(axis=1)
+
+
+def load_recon_sh(path: Path) -> pd.Series:
+    return _load_recon_ensemble(path).median(axis=1)
+
+
 def load_sunspots(path: Path) -> pd.Series:
     df = pd.read_csv(path, sep=r"\s+", header=None, usecols=[0, 1], names=["y", "sn"])
     year = df["y"].astype(float).astype(int)
@@ -385,6 +439,8 @@ LOADERS = {
     "co2_mlo": load_co2_mlo,
     "tsi": load_tsi,
     "quelccaya": load_quelccaya,
+    "recon_nh": load_recon_nh,
+    "recon_sh": load_recon_sh,
     "sunspots": load_sunspots,
 }
 
