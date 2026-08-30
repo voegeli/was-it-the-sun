@@ -710,7 +710,7 @@ EXC_LABEL = {
 def make_figure(d: dict, out: Path) -> None:
     fig = plt.figure(figsize=(17.5, 11.6))
     gs = fig.add_gridspec(
-        2, 3, height_ratios=[2.45, 1.0], hspace=0.34, wspace=0.30,
+        2, 4, height_ratios=[2.30, 1.0], hspace=0.36, wspace=0.34,
         left=0.055, right=0.945, top=0.850, bottom=0.075,
     )
     ax = fig.add_subplot(gs[0, :])
@@ -802,8 +802,38 @@ def make_figure(d: dict, out: Path) -> None:
 
     # ===================== bottom row =====================
 
+    # (0) The Sun at its own scale.
+    # The main panel shows solar and CO2 forcing on one axis, which is the
+    # honest magnitude comparison but leaves the solar structure too small to
+    # read. Rather than inflate that curve -- the source figure's error with
+    # the sign reversed -- the same series gets its own axis here, with the
+    # magnification stated so the two panels cannot be confused.
+    a0 = fig.add_subplot(gs[1, 0])
+    for _n, _y0, _y1 in MINIMA:
+        a0.axvspan(_y0, _y1, color="#6A5ACD", alpha=0.12, zorder=0)
+    a0.plot(fr.index, fr.values, color=C_SOL, lw=0.7, alpha=0.40)
+    a0.plot(d["f_sol"].index, d["f_sol"].values, color=C_SOL, lw=2.2)
+    a0.axhline(0, color="#999999", lw=0.7, ls=":", zorder=0)
+    a0.set_xlim(*XLIM)
+    a0.set_ylabel("Solar forcing (W/m$^2$)", color=C_SOL, fontsize=9)
+    a0.tick_params(axis="y", colors=C_SOL, labelsize=8)
+    a0.tick_params(axis="x", labelsize=8)
+    _lo, _hi = a0.get_ylim()
+    _mag = (ax.get_ylim()[1] - ax.get_ylim()[0]) / (_hi - _lo)
+    a0.set_title("The Sun did vary - here it is at its own scale\n"
+                 "same series as above, magnified %.0fx" % _mag,
+                 fontsize=8.8, pad=6)
+    a0.annotate("Maunder", xy=(1680, float(d["f_sol"].loc[1680])),
+                xytext=(1618, _lo + 0.17 * (_hi - _lo)), fontsize=7.5,
+                color="#4A3F9F",
+                arrowprops=dict(arrowstyle="->", color="#4A3F9F", lw=0.9))
+    a0.annotate("peak %d" % pk_y, xy=(pk_y, float(d["f_sol"].loc[pk_y])),
+                xytext=(1793, _hi - 0.06 * (_hi - _lo)), fontsize=7.5,
+                color="#7A4A00", ha="center",
+                arrowprops=dict(arrowstyle="->", color="#7A4A00", lw=0.9))
+
     # (1) the divergence since 1980
-    a1 = fig.add_subplot(gs[1, 0])
+    a1 = fig.add_subplot(gs[1, 1])
     a1t = a1.twinx()
     # Solar shown as FORCING here too. Raw TSI in W/m2 never shares a panel
     # with a climate quantity -- that conflation is one of the defects being
@@ -822,13 +852,13 @@ def make_figure(d: dict, out: Path) -> None:
     a1.tick_params(axis="x", labelsize=8)
     a1t.tick_params(axis="y", colors=C_GLB, labelsize=8)
     a1.set_title("Since 1980 the Sun declines while the Earth warms\n"
-                 "solar %+.3f W/m$^2$/dec (to %d)  ·  HadCRUT5 %+.3f K/dec  ·  "
-                 "UAH %+.3f K/dec"
+                 "solar %+.3f W/m$^2$/dec (to %d)\n"
+                 "HadCRUT5 %+.3f  ·  UAH %+.3f K/dec"
                  % (d["tr_fsol"][0], d["tr_fsol"][2], d["tr_had"][0], d["tr_uah"][0]),
-                 fontsize=9.5, pad=7)
+                 fontsize=8.8, pad=6)
 
     # (2) forcing magnitudes
-    a2 = fig.add_subplot(gs[1, 1])
+    a2 = fig.add_subplot(gs[1, 2])
     names = ["CO$_2$\n(1750 to today)", "Solar\n(1750 to today)",
              "Solar, most\nfavourable case\n(%d to today)" % d["trough_year"]]
     vals = [d["f_co2_now"], d["f_sol_now"], d["f_sol_best"]]
@@ -841,11 +871,11 @@ def make_figure(d: dict, out: Path) -> None:
     a2.set_ylim(0, max(vals) * 1.32)
     a2.tick_params(labelsize=8)
     a2.set_title("CO$_2$ forcing is %.0fx the solar forcing\n"
-                 "(%.0fx even measured from the Maunder trough)"
+                 "(%.0fx even from the Maunder trough)"
                  % (d["ratio"], d["ratio_best"]), fontsize=9.5, pad=7)
 
     # (3) the 1730 excursion, identical windows, per series
-    a3 = fig.add_subplot(gs[1, 2])
+    a3 = fig.add_subplot(gs[1, 3])
     keys = ["cet", "nh", "sh"]
     vs = [d["exc"][k] for k in keys]
     bars = a3.bar([EXC_LABEL[k] for k in keys], vs, color=[C_CET, C_REC, C_REC], width=0.6)
@@ -857,7 +887,7 @@ def make_figure(d: dict, out: Path) -> None:
     a3.tick_params(labelsize=8)
     a3.set_title("The same event, measured the same way\n"
                  "England warms %.0fx more than the hemisphere" % d["exc_ratio"],
-                 fontsize=9.5, pad=7)
+                 fontsize=8.8, pad=6)
     a3.text(0.5, 0.52,
             "Quelccaya ice cap, Peru - the source figure's own\n"
             "reference (3) for \"seen in many locations globally\":\n"
@@ -865,10 +895,10 @@ def make_figure(d: dict, out: Path) -> None:
             "i.e. the opposite direction. It is also a\n"
             "precipitation proxy, not a thermometer."
             % d["exc_quel"],
-            transform=a3.transAxes, ha="center", va="center", fontsize=8,
+            transform=a3.transAxes, ha="center", va="center", fontsize=6.8,
             bbox=dict(boxstyle="round,pad=0.4", fc="#FFF9E6", ec="#D9B24C"))
 
-    for a_ in (ax, a1, a2, a3):
+    for a_ in (ax, a0, a1, a2, a3):
         a_.grid(alpha=0.16, lw=0.6)
         a_.set_axisbelow(True)
 
