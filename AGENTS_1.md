@@ -13,6 +13,30 @@ people looking for mistakes. A single misplaced shading band or a curve that end
 in the wrong year discredits the whole thing, regardless of whether the underlying
 argument is sound.
 
+## Repository state — read this first
+
+This file describes the pipeline's required shape. The code implementing it may not
+be present in your working directory. Before doing anything else:
+
+```
+ls climate_figure.py data/ requirements.txt
+```
+
+- **All present** — you are maintaining the pipeline. Every rule below applies as
+  written.
+- **Nothing present** — you are bootstrapping it. Build in this order and do not
+  skip ahead: `requirements.txt`, then the `MANIFEST` and `CFG` blocks, then one
+  loader with its `EXPECT` entry and QC row, then the validation gate, then the
+  first plotted series, then the remaining series one at a time. A pipeline that
+  validates one real series beats a pipeline that plots six unvalidated ones.
+- **Partially present** — say so in your first response and state which of the two
+  cases above you are treating it as. Do not guess at the contents of a file that
+  is not there.
+
+Do not write a placeholder `climate_figure.py` that draws example curves so that
+"the pipeline runs". That is the failure mode this document exists to prevent,
+wearing a scaffolding costume.
+
 ## The one rule that matters
 
 **Never produce a plotted value that did not come from a data file on disk.**
@@ -31,7 +55,12 @@ Concretely, this means:
 - If a dataset is unavailable, **stop and report it**. Do not substitute a similar
   dataset while keeping the original label. Using HadCRUT5 and calling it GloSAT is
   a fabrication, not a workaround.
-- If you are unsure whether a number is real, it is not. Remove it.
+- If you are unsure whether a number is real, **resolve it — do not delete it and
+  do not keep it quietly.** Trace it back to the file and the line of code that
+  produced it. If you can trace it, it stays. If you cannot, it comes out of the
+  figure *and* the reason appears in your response. Silently dropping a genuine
+  value is its own kind of falsification: a reader cannot see that a curve was
+  truncated.
 
 An aborted run is a good outcome. A figure built on data that failed validation is
 a bad one.
@@ -42,25 +71,65 @@ Every loader must assert expected coverage before the data is used. The `EXPECT`
 dict in `climate_figure.py` holds first/last year per series; a violation raises
 `DataError` and the process exits non-zero without writing a figure.
 
-Before any figure is written, the QC table must print for each series: first year
-and value, last year and value, number of finite points. Do not suppress it, do not
-move it after the plot, do not make it conditional on a verbose flag.
+Coverage is necessary but not sufficient — a wrong file that happens to span the
+right years passes a year check in silence. Each `EXPECT` entry therefore also
+carries:
 
-When adding a series, add its entry to `EXPECT` and its row to the QC table in the
-same commit.
+- `sha256` — of the raw file as downloaded. A mismatch raises `DataError`. When a
+  provider genuinely reissues a dataset, update the hash **and** the MANIFEST
+  version and access date in the same commit, and state in the commit message what
+  changed in the data.
+- `value_range` — a plausible physical range for the series (CO₂ roughly 270–430
+  ppm, TSI roughly 1358–1364 W/m², anomalies roughly −2 to +2 °C). Catches unit
+  errors and column mix-ups that a year check cannot see.
+- `n_min` — minimum count of finite points. Catches a file that parsed into mostly
+  NaN.
+
+Before any figure is written, the QC table must print for each series: first year
+and value, last year and value, number of finite points, and the sha256 prefix of
+the source file. Do not suppress it, do not move it after the plot, do not make it
+conditional on a verbose flag.
+
+MANIFEST completeness is enforced in code, not by review. At startup, assert that
+every key in `CFG` has a MANIFEST entry with a non-empty citation and URL, and that
+every MANIFEST entry is actually used. An orphan or an undocumented series raises
+`DataError`.
+
+When adding a series, its `CFG` entry, `MANIFEST` entry, `EXPECT` entry and QC row
+all land in the same commit. A half-registered series is worse than an absent one,
+because it looks checked.
 
 ## Data provenance
 
 Raw data lives in `data/` and is **not** committed. See the MANIFEST block at the
 top of `climate_figure.py` for sources. Rules:
 
-- Every series in the figure has a matching entry in the MANIFEST with a citation
-  and a URL.
+- Every series in the figure has a matching MANIFEST entry with a citation, a URL,
+  the access date, and the sha256 of the file that was actually used.
 - Column names in `CFG` must match the real file headers. Read the header. Do not
   guess and do not assume a file format is stable between releases.
 - Do not invent deep links. If you do not know the exact file URL, link the landing
   page and say the path needs checking.
 - GloSATref requires a free CEDA account. This is expected; do not route around it.
+
+### When a source is unreachable
+
+Providers go down, move files, and reissue with new schemas. Reproducibility cannot
+depend on all of them being up at the same moment, so:
+
+- `data/` holds working copies. `data/snapshots/<series>/<access-date>/` holds the
+  pinned copy the figure was last built from, with its sha256 recorded in MANIFEST.
+  Snapshots are a fallback, not the default — a normal run fetches fresh and
+  verifies the hash still matches.
+- Fetch fails, pinned snapshot exists: use the snapshot, print a `STALE:` line in
+  the QC table carrying the snapshot's access date, and say so in your response. A
+  stale run must never pass as a fresh one.
+- Fetch fails, no snapshot: **stop**. Report the URL, the HTTP status or error, and
+  what you tried. Do not substitute, do not reconstruct, and do not carry on with
+  the remaining series hoping the gap goes unnoticed.
+- Fetch succeeds but the hash changed: stop and report it. Do not update the hash
+  to make the check pass until you have confirmed the provider reissued the dataset
+  and have established what changed in it.
 
 ## Figure conventions
 
@@ -70,6 +139,9 @@ top of `climate_figure.py` for sources. Rules:
 - Solar minima are drawn at their real extent: Maunder 1645–1715, Dalton 1795–1815.
   After any layout change, verify the bands against the x-axis, not against how they
   look.
+- An event that falls outside the plotted x-range is not drawn at the edge of the
+  axis. Either extend the axis to contain it or leave it out and say why. A label
+  parked at the axis boundary reads as a claim about the year it sits over.
 - Volcanic markers (1783, 1809, 1815, 1883) are drawn from the x-axis. If a marker
   does not sit over its cooling dip, the axis mapping is broken — do not nudge the
   marker to compensate.
@@ -77,7 +149,7 @@ top of `climate_figure.py` for sources. Rules:
   1750–2019 per IPCC AR6 WG1 Ch.7. A solar term computed from 1600 is a different
   quantity and must be labelled as the deliberately most solar-favourable case, not
   presented alongside a 1750-based CO₂ number as if comparable.
-- Splices are marked in the figure: ice core → Mauna Loa, SATIRE-T → SATIRE-S.
+- Splices are marked in the figure: ice core to Mauna Loa, SATIRE-T to SATIRE-S.
   Never join a proxy reconstruction to an instrumental record without an overlap
   region visible to the reader.
 - Do not mix lower-troposphere satellite data with surface records in the same
@@ -93,13 +165,24 @@ mostly measures the baseline offset between England and the globe, and will be
 called out as such.
 
 Any number that appears as text in the figure must be computed from the loaded data
-in the same run, not typed into a string literal. If a value cannot be computed,
-it does not go in the figure.
+in the same run, not typed into a string literal. If a value cannot be computed, it
+does not go in the figure.
 
 ## Running
 
+Linux and macOS:
+
 ```
 python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+python climate_figure.py
+```
+
+Windows, PowerShell:
+
+```
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python climate_figure.py
 ```
@@ -108,18 +191,32 @@ Exit code 0 with `figure_climate_1600_2025.png` written means the run passed
 validation. Exit code 1 means a series failed; read stderr, fix the data or the
 config, do not weaken the check.
 
+Keep the script platform-neutral: build paths with `pathlib` rather than string
+concatenation, and do not assume a POSIX shell is available at runtime.
+
 ## Style
 
-- Python, stdlib + numpy/pandas/matplotlib. No new dependency without asking.
+- Python, stdlib plus numpy, pandas and matplotlib. No new dependency without
+  asking.
 - Loaders stay dumb: read file, select columns, index by year. Cleverness in a
   loader hides data problems.
 - Comments explain why a check exists, not what a line does.
 
 ## Before you say you are done
 
-- [ ] Ran the script end to end; QC table pasted into the response.
-- [ ] First and last year of every series matches the published record.
-- [ ] Shading bands and event markers checked against axis coordinates.
-- [ ] Every annotated number traced to a computed value, not a literal.
-- [ ] No dataset silently substituted for another.
-- [ ] If anything could not be verified, said so plainly instead of omitting it.
+The script already enforces coverage, hashes, value ranges, point counts and
+MANIFEST completeness. Those are not repeated here — if the run exited 0, they
+passed. This checklist covers only what a machine cannot check:
+
+- [ ] Ran the script end to end; QC table pasted into the response, including any
+      `STALE:` lines.
+- [ ] Opened the rendered PNG and looked at it. Shading bands and event markers sit
+      where the x-axis says they should, not merely where they look plausible.
+- [ ] No label refers to a period outside the plotted x-range.
+- [ ] Every annotated number traced back to the line of code that computed it.
+- [ ] No dataset silently substituted, and no series quietly dropped.
+- [ ] Splices, baseline re-referencing, and any regional-vs-global distinction are
+      legible to someone who has only the image, not just to someone reading the
+      code.
+- [ ] Anything you could not verify is stated plainly in the response — including
+      "I could not check X" — rather than omitted.
