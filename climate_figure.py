@@ -143,8 +143,13 @@ import hashlib
 import sys
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Rectangle
 
 DATA = Path(__file__).parent / "data"
 SNAPSHOTS = DATA / "snapshots"
@@ -540,7 +545,352 @@ def main() -> int:
     if stale:
         print("STALE sources used: " + ", ".join(stale))
     print()
+
+    try:
+        d = derive(series)
+    except DataError as exc:
+        print(f"\nDataError: {exc}\n", file=sys.stderr)
+        return 1
+
+    print("DERIVED VALUES (every number annotated on the figure comes from here)")
+    print("-" * 96)
+    print(f"  CO2 forcing 1750->today            {d['f_co2_now']:+8.4f} W/m2")
+    print(f"  Solar forcing 1750->today          {d['f_sol_now']:+8.4f} W/m2   "
+          f"ratio {d['ratio']:.1f} : 1")
+    print(f"  Solar forcing {d['trough_year']}->today (best case) "
+          f"{d['f_sol_best']:+8.4f} W/m2   ratio {d['ratio_best']:.1f} : 1")
+    print(f"  TSI trend since 1980               {d['tr_tsi'][0]:+8.4f} W/m2/decade "
+          f"({d['tr_tsi'][1]}-{d['tr_tsi'][2]})")
+    print(f"  HadCRUT5 trend since 1980          {d['tr_had'][0]:+8.4f} K/decade "
+          f"({d['tr_had'][1]}-{d['tr_had'][2]})")
+    print(f"  UAH trend since 1980               {d['tr_uah'][0]:+8.4f} K/decade "
+          f"({d['tr_uah'][1]}-{d['tr_uah'][2]})")
+    print(f"  Strongest 11-yr TSI                {d['tsi_peak']:.4f} in {d['tsi_peak_year']}; "
+          f"{d['tsi_last_year']} ranks {d['tsi_rank']} of {d['tsi_n']}")
+    print(f"  1680-1700 -> 1725-1735   HadCET    {d['exc']['cet']:+8.4f} K")
+    print(f"                           NH recon  {d['exc']['nh']:+8.4f} K   "
+          f"ratio {d['exc_ratio']:.1f} : 1")
+    print(f"                           SH recon  {d['exc']['sh']:+8.4f} K")
+    print(f"                           Quelccaya {d['exc_quel']:+8.4f} permil (NOT a temperature)")
+    print("-" * 96 + "\n")
+
+    out = Path(__file__).parent / "figure_climate_1600_2025.png"
+    make_figure(d, out)
+    print(f"Wrote {out}\n")
     return 0
+
+
+
+# ---------------------------------------------------------------------------
+# Derived quantities. Every number annotated on the figure comes from here,
+# computed in the same run. Nothing below is typed in as a literal.
+# ---------------------------------------------------------------------------
+
+
+def cycle_average(s: pd.Series, window: int = 11) -> pd.Series:
+    """Centred 11-year mean: one Schwabe cycle.
+
+    The 11-year cycle is the largest amplitude in the TSI record and the
+    smallest contributor to multidecadal temperature -- ocean thermal inertia
+    damps it almost entirely. Comparisons against temperature or CO2 use this
+    series, never the raw one.
+    """
+    return s.rolling(window, center=True, min_periods=window).mean().dropna()
+
+
+def to_anomaly(s: pd.Series, label: str) -> pd.Series:
+    """Re-reference to 1961-1990, warning when it happens."""
+    lo, hi = BASELINE
+    ref = s.loc[lo:hi]
+    if len(ref) < (hi - lo + 1) * 0.9:
+        raise DataError(
+            f"{label}: only {len(ref)} years inside {lo}-{hi}; cannot re-reference. "
+            f"Do not compare anomalies from different baselines."
+        )
+    print(f"  re-referencing {label} to {lo}-{hi} (offset {-ref.mean():+.4f})")
+    return s - ref.mean()
+
+
+def derive(series: dict[str, pd.Series]) -> dict:
+    d: dict = {}
+
+    tsi_raw = series["tsi"]
+    tsi = cycle_average(tsi_raw)
+    d["tsi_raw"], d["tsi"] = tsi_raw, tsi
+
+    # --- forcings, single reference period, AR6 WG1 Ch.7 ---
+    co2 = pd.concat([series["co2_ice"][series["co2_ice"].index < series["co2_mlo"].index.min()],
+                     series["co2_mlo"]])
+    d["co2"], d["co2_ice"], d["co2_mlo"] = co2, series["co2_ice"], series["co2_mlo"]
+
+    c_ref = float(series["co2_ice"].loc[FORCING_REF_YEAR])
+    t_ref = float(tsi.loc[FORCING_REF_YEAR])
+    d["f_co2"] = CO2_FORCING_COEFF * np.log(co2 / c_ref)
+    d["splice_year"] = int(series["co2_mlo"].index.min())
+    d["f_co2_ice"] = CO2_FORCING_COEFF * np.log(series["co2_ice"] / c_ref)
+    d["f_sol"] = (tsi - t_ref) * TSI_TO_FORCING
+
+    d["f_co2_now"] = float(d["f_co2"].iloc[-1])
+    d["f_sol_now"] = float(d["f_sol"].iloc[-1])
+    d["ratio"] = d["f_co2_now"] / abs(d["f_sol_now"])
+
+    # most solar-favourable framing: measure the Sun from its Maunder trough
+    trough_y = int(tsi.loc[1600:1720].idxmin())
+    d["trough_year"] = trough_y
+    d["f_sol_best"] = float((tsi.iloc[-1] - tsi.loc[trough_y]) * TSI_TO_FORCING)
+    d["ratio_best"] = d["f_co2_now"] / d["f_sol_best"]
+
+    # --- temperatures on a common 1961-1990 baseline ---
+    d["hadcrut5"] = series["hadcrut5"]
+    d["cet"] = to_anomaly(series["hadcet"], "hadcet")
+    d["nh"] = to_anomaly(series["recon_nh"], "recon_nh")
+    d["sh"] = to_anomaly(series["recon_sh"], "recon_sh")
+
+    # UAH begins 1979 and has no overlap with 1961-1990, so it cannot be
+    # re-referenced. Offset it onto HadCRUT5 over their common years instead,
+    # and report the offset rather than hiding it.
+    uah = series["uah_lt"]
+    common = uah.index.intersection(d["hadcrut5"].index)
+    d["uah_offset"] = float(d["hadcrut5"].loc[common].mean() - uah.loc[common].mean())
+    d["uah"] = uah + d["uah_offset"]
+    d["uah_common"] = (int(common.min()), int(common.max()))
+
+    d["quelccaya"] = series["quelccaya"]
+    d["sunspots"] = series["sunspots"]
+
+    # --- post-1980 divergence ---
+    def slope(s: pd.Series, y0: int = 1980) -> tuple[float, int, int]:
+        w = s.loc[y0:]
+        b = float(np.polyfit(w.index.values.astype(float), w.values, 1)[0])
+        return b * 10.0, int(w.index.min()), int(w.index.max())
+
+    d["tr_tsi"] = slope(tsi)
+    d["tr_fsol"] = slope(d["f_sol"])  # same trend in forcing units
+    d["tr_had"] = slope(d["hadcrut5"])
+    d["tr_uah"] = slope(d["uah"])
+
+    # --- was the modern Sun the strongest on record? ---
+    d["tsi_peak_year"] = int(tsi.idxmax())
+    d["tsi_peak"] = float(tsi.max())
+    d["tsi_last_year"] = int(tsi.index.max())
+    d["tsi_last"] = float(tsi.iloc[-1])
+    d["tsi_rank"] = int((tsi > tsi.iloc[-1]).sum()) + 1
+    d["tsi_n"] = int(len(tsi))
+
+    # --- the 1730 excursion, identical windows, per series ---
+    def exc(s: pd.Series) -> float:
+        return float(s.loc[1725:1735].mean() - s.loc[1680:1700].mean())
+
+    d["exc"] = {"cet": exc(d["cet"]), "nh": exc(d["nh"]), "sh": exc(d["sh"])}
+    d["exc_ratio"] = d["exc"]["cet"] / d["exc"]["nh"]
+    d["exc_quel"] = exc(series["quelccaya"])  # permil, NOT a temperature
+
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Figure. Same architecture as the source figure -- one wide panel, 1600-2025,
+# era shading, annotated turning points -- so the two can be read side by side.
+# The corrections are in the axes, not the layout.
+# ---------------------------------------------------------------------------
+
+C_SOL, C_CO2 = "#E8890C", "#1B8A3A"
+C_CET, C_GLB, C_REC, C_SAT = "#8B2FC9", "#111111", "#1F6FB8", "#C4243C"
+
+# Real extent of the solar minima. Drawn from x-axis coordinates, never nudged.
+MINIMA = [("Maunder Minimum", 1645, 1715), ("Dalton Min.", 1795, 1815)]
+
+EXC_LABEL = {
+    "cet": "HadCET\n(Central England)",
+    "nh": "Neukom 2018\nN. Hemisphere",
+    "sh": "Neukom 2018\nS. Hemisphere",
+}
+
+
+def make_figure(d: dict, out: Path) -> None:
+    fig = plt.figure(figsize=(17.5, 11.6))
+    gs = fig.add_gridspec(
+        2, 3, height_ratios=[2.45, 1.0], hspace=0.34, wspace=0.30,
+        left=0.055, right=0.945, top=0.850, bottom=0.075,
+    )
+    ax = fig.add_subplot(gs[0, :])
+    axT = ax.twinx()
+
+    exc_cet = d["exc"]["cet"]
+    exc_nh = d["exc"]["nh"]
+
+    # ---- era shading, drawn from x-axis coordinates ----
+    for name, y0, y1 in MINIMA:
+        ax.axvspan(y0, y1, color="#6A5ACD", alpha=0.10, zorder=0)
+        ax.text((y0 + y1) / 2, 0.022, name + "\n" + str(y0) + "-" + str(y1),
+                transform=ax.get_xaxis_transform(), ha="center", va="bottom",
+                fontsize=8.5, color="#4A3F9F")
+
+    # ---- forcings: left axis, both series in W/m2 on ONE scale ----
+    lbl_co2 = ("CO$_2$ radiative forcing (ice core $\\to$ Mauna Loa), ref %d"
+               % FORCING_REF_YEAR)
+    lbl_sol = ("Solar radiative forcing = $\\Delta$TSI/4$\\times$(1-$\\alpha$), "
+               "11-yr mean, ref %d" % FORCING_REF_YEAR)
+    ax.plot(d["f_co2"].index, d["f_co2"].values, color=C_CO2, lw=2.6, label=lbl_co2)
+    ov = d["f_co2_ice"].loc[d["splice_year"]:]
+    ax.plot(ov.index, ov.values, color=C_CO2, lw=1.4, ls=(0, (5, 2)), alpha=0.85,
+            label="Law Dome ice core continues to %d - overlap, not a gap"
+                  % int(ov.index.max()))
+    ax.axvline(d["splice_year"], color=C_CO2, lw=0.9, ls=":", alpha=0.8)
+    ax.annotate("splice: ice core to Mauna Loa, %d" % d["splice_year"],
+                xy=(d["splice_year"], float(d["f_co2"].loc[d["splice_year"]])),
+                xytext=(d["splice_year"] - 96, 0.92), fontsize=8.2, color=C_CO2,
+                arrowprops=dict(arrowstyle="->", color=C_CO2, lw=1.0),
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_CO2, alpha=0.9))
+    ax.plot(d["f_sol"].index, d["f_sol"].values, color=C_SOL, lw=2.6, label=lbl_sol)
+    fr = (d["tsi_raw"] - float(d["tsi"].loc[FORCING_REF_YEAR])) * TSI_TO_FORCING
+    ax.plot(fr.index, fr.values, color=C_SOL, lw=0.6, alpha=0.35,
+            label="Solar forcing, raw 11-yr cycle (not filled: the ocean damps it)")
+    ax.axhline(0, color="#999999", lw=0.7, ls=":", zorder=0)
+    ax.set_ylabel("Radiative forcing (W/m$^2$)  —  both curves, one scale", fontsize=10.5)
+    ax.set_ylim(-0.62, 3.10)
+    ax.set_xlim(*XLIM)
+    ax.set_xlabel("Year", fontsize=10.5)
+
+    # ---- temperatures: right axis ----
+    axT.plot(d["nh"].index, d["nh"].values, color=C_REC, lw=1.5, alpha=0.9,
+             label="N. Hemisphere reconstruction (Neukom 2018, PAGES 2k proxies)")
+    axT.plot(d["cet"].index, d["cet"].values, color=C_CET, lw=0.9, alpha=0.75,
+             label="HadCET - Central England ONLY, a region, not the globe")
+    axT.plot(d["hadcrut5"].index, d["hadcrut5"].values, color=C_GLB, lw=2.0,
+             label="HadCRUT5 global mean surface temperature")
+    axT.plot(d["uah"].index, d["uah"].values, color=C_SAT, lw=1.3, ls="--",
+             label=("UAH lower troposphere (different quantity; offset %+.2f K onto "
+                    "HadCRUT5 over %d-%d)"
+                    % (d["uah_offset"], d["uah_common"][0], d["uah_common"][1])))
+    axT.set_ylabel("Temperature anomaly (degC, wrt 1961-1990)", fontsize=10.5)
+    axT.set_ylim(-2.7, 2.0)
+
+    # ---- annotations. Every value AND every anchor comes from the loaded data.
+    # An arrow tip is a claim about the year and value it sits over, so both
+    # coordinates are read off the series, never typed in to look right.
+    cet_peak_year = int(d["cet"].loc[1725:1735].idxmax())
+    cet_peak_val = float(d["cet"].loc[cet_peak_year])
+    axT.annotate(
+        ("The 1730 peak is ENGLISH.\nHadCET %+.2f K   vs   N. Hemisphere %+.2f K\n"
+         "= %.0fx larger in one region than hemispherically"
+         % (exc_cet, exc_nh, d["exc_ratio"])),
+        # xytext is in axT (temperature) coordinates, not ax (forcing) ones
+        xy=(cet_peak_year, cet_peak_val), xytext=(1604, 1.93), fontsize=9.5, va="top",
+        color=C_CET, arrowprops=dict(arrowstyle="->", color=C_CET, lw=1.3),
+        bbox=dict(boxstyle="round,pad=0.4", fc="white", ec=C_CET, alpha=0.93))
+
+    # Anchor on the solar-forcing curve at its own peak year, so the arrow sits
+    # over the feature the text is about.
+    pk_y = d["tsi_peak_year"]
+    ax.annotate(
+        ("Strongest Sun was %d, not today.\n%d ranks %dth of %d years.\n"
+         "Since 1980: solar forcing %+.3f W/m$^2$/decade\n"
+         "while HadCRUT5 %+.3f K/decade."
+         % (pk_y, d["tsi_last_year"], d["tsi_rank"], d["tsi_n"],
+            d["tr_fsol"][0], d["tr_had"][0])),
+        xy=(pk_y, float(d["f_sol"].loc[pk_y])), xytext=(1776, 3.04),
+        fontsize=9.5, va="top", color="#7A4A00",
+        arrowprops=dict(arrowstyle="->", color="#7A4A00", lw=1.3,
+                        connectionstyle="arc3,rad=-0.15"),
+        bbox=dict(boxstyle="round,pad=0.4", fc="#FFF6E8", ec=C_SOL, alpha=0.95))
+
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = axT.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8.4, framealpha=0.94,
+              bbox_to_anchor=(0.005, 0.425))
+
+    # ===================== bottom row =====================
+
+    # (1) the divergence since 1980
+    a1 = fig.add_subplot(gs[1, 0])
+    a1t = a1.twinx()
+    # Solar shown as FORCING here too. Raw TSI in W/m2 never shares a panel
+    # with a climate quantity -- that conflation is one of the defects being
+    # corrected, and it would be no better for being ours.
+    ts, hd = d["f_sol"].loc[1980:], d["hadcrut5"].loc[1980:]
+    a1.plot(ts.index, ts.values, color=C_SOL, lw=2.2)
+    a1t.plot(hd.index, hd.values, color=C_GLB, lw=2.2)
+    a1t.plot(d["uah"].loc[1980:].index, d["uah"].loc[1980:].values,
+             color=C_SAT, lw=1.1, ls="--")
+    for s_, ax_, c_ in ((ts, a1, C_SOL), (hd, a1t, C_GLB)):
+        b_, a_ = np.polyfit(s_.index.values.astype(float), s_.values, 1)
+        ax_.plot(s_.index, b_ * s_.index.values + a_, color=c_, lw=1.0, ls=":")
+    a1.set_ylabel("Solar forcing, 11-yr mean (W/m$^2$)", color=C_SOL, fontsize=9)
+    a1t.set_ylabel("Temp. anomaly (degC)", color=C_GLB, fontsize=9)
+    a1.tick_params(axis="y", colors=C_SOL, labelsize=8)
+    a1.tick_params(axis="x", labelsize=8)
+    a1t.tick_params(axis="y", colors=C_GLB, labelsize=8)
+    a1.set_title("Since 1980 the Sun declines while the Earth warms\n"
+                 "solar %+.3f W/m$^2$/dec (to %d)  ·  HadCRUT5 %+.3f K/dec  ·  "
+                 "UAH %+.3f K/dec"
+                 % (d["tr_fsol"][0], d["tr_fsol"][2], d["tr_had"][0], d["tr_uah"][0]),
+                 fontsize=9.5, pad=7)
+
+    # (2) forcing magnitudes
+    a2 = fig.add_subplot(gs[1, 1])
+    names = ["CO$_2$\n(1750 to today)", "Solar\n(1750 to today)",
+             "Solar, most\nfavourable case\n(%d to today)" % d["trough_year"]]
+    vals = [d["f_co2_now"], d["f_sol_now"], d["f_sol_best"]]
+    bars = a2.bar(names, vals, color=[C_CO2, C_SOL, C_SOL], width=0.62)
+    bars[2].set_alpha(0.55)
+    for b_, v in zip(bars, vals):
+        a2.text(b_.get_x() + b_.get_width() / 2, v + 0.06, "%+.2f" % v,
+                ha="center", fontsize=10, fontweight="bold")
+    a2.set_ylabel("Radiative forcing (W/m$^2$)", fontsize=9)
+    a2.set_ylim(0, max(vals) * 1.32)
+    a2.tick_params(labelsize=8)
+    a2.set_title("CO$_2$ forcing is %.0fx the solar forcing\n"
+                 "(%.0fx even measured from the Maunder trough)"
+                 % (d["ratio"], d["ratio_best"]), fontsize=9.5, pad=7)
+
+    # (3) the 1730 excursion, identical windows, per series
+    a3 = fig.add_subplot(gs[1, 2])
+    keys = ["cet", "nh", "sh"]
+    vs = [d["exc"][k] for k in keys]
+    bars = a3.bar([EXC_LABEL[k] for k in keys], vs, color=[C_CET, C_REC, C_REC], width=0.6)
+    for b_, v in zip(bars, vs):
+        a3.text(b_.get_x() + b_.get_width() / 2, v + 0.035, "%+.3f K" % v,
+                ha="center", fontsize=9.5, fontweight="bold")
+    a3.set_ylabel("Warming, 1680-1700 to 1725-1735 (K)", fontsize=9)
+    a3.set_ylim(0, max(vs) * 1.42)
+    a3.tick_params(labelsize=8)
+    a3.set_title("The same event, measured the same way\n"
+                 "England warms %.0fx more than the hemisphere" % d["exc_ratio"],
+                 fontsize=9.5, pad=7)
+    a3.text(0.5, 0.52,
+            "Quelccaya ice cap, Peru - the source figure's own\n"
+            "reference (3) for \"seen in many locations globally\":\n"
+            "d18O moves %+.2f permil over the same window,\n"
+            "i.e. the opposite direction. It is also a\n"
+            "precipitation proxy, not a thermometer."
+            % d["exc_quel"],
+            transform=a3.transAxes, ha="center", va="center", fontsize=8,
+            bbox=dict(boxstyle="round,pad=0.4", fc="#FFF9E6", ec="#D9B24C"))
+
+    for a_ in (ax, a1, a2, a3):
+        a_.grid(alpha=0.16, lw=0.6)
+        a_.set_axisbelow(True)
+
+    fig.text(0.055, 0.972, "Was it the Sun?", fontsize=21, fontweight="bold", va="top")
+    fig.text(0.055, 0.934,
+             "The same 1600-2025 chart as the version circulating on X, rebuilt with every "
+             "series loaded from its published archive and every axis in comparable units.",
+             fontsize=10.5, va="top", color="#333333")
+    fig.text(0.055, 0.899,
+             "Corrections: (1) raw TSI in W/m2 is not a radiative forcing - the conversion is "
+             "dTSI/4x(1-albedo) ~ 0.175;   (2) Central England is not the globe;   "
+             "(3) the Spoerer Minimum lies outside a 1600-start axis.",
+             fontsize=9, va="top", color="#555555")
+    fig.text(0.945, 0.972,
+             "Sources: HadCET · HadCRUT5 · UAH v6.1 · Law Dome (MacFarling Meure 2006) · "
+             "NOAA Mauna Loa\nNRLTSI2 (Coddington 2016) · SILSO · Quelccaya (Thompson 1986) · "
+             "Neukom 2018 / PAGES 2k v2\nFull citations, URLs and SHA-256 of every file: "
+             "MANIFEST in climate_figure.py",
+             fontsize=7.8, va="top", ha="right", color="#444444", linespacing=1.6)
+
+    fig.savefig(out, dpi=150, facecolor="white")
+    plt.close(fig)
 
 
 if __name__ == "__main__":
