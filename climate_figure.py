@@ -744,7 +744,10 @@ def make_figure(d: dict, out: Path) -> None:
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_CO2, alpha=0.9))
     ax.plot(d["f_sol"].index, d["f_sol"].values, color=C_SOL, lw=2.6, label=lbl_sol)
     fr = (d["tsi_raw"] - float(d["tsi"].loc[FORCING_REF_YEAR])) * TSI_TO_FORCING
-    ax.plot(fr.index, fr.values, color=C_SOL, lw=0.6, alpha=0.35,
+    # Line weight and opacity only -- the amplitude is untouched. The Schwabe
+    # cycle is small in forcing terms and must stay that way; it just should not
+    # be invisible.
+    ax.plot(fr.index, fr.values, color="#C46A00", lw=1.15, alpha=0.75,
             label="Solar forcing, raw 11-yr cycle (not filled: the ocean damps it)")
     ax.axhline(0, color="#999999", lw=0.7, ls=":", zorder=0)
     ax.set_ylabel("Radiative forcing (W/m$^2$)  —  both curves, one scale", fontsize=10.5)
