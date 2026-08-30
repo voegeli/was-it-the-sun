@@ -710,7 +710,7 @@ EXC_LABEL = {
 def make_figure(d: dict, out: Path) -> None:
     fig = plt.figure(figsize=(17.5, 11.6))
     gs = fig.add_gridspec(
-        2, 4, height_ratios=[2.30, 1.0], hspace=0.36, wspace=0.34,
+        2, 4, height_ratios=[2.30, 1.0], hspace=0.60, wspace=0.34,
         left=0.055, right=0.945, top=0.850, bottom=0.075,
     )
     ax = fig.add_subplot(gs[0, :])
@@ -727,15 +727,12 @@ def make_figure(d: dict, out: Path) -> None:
                 fontsize=8.5, color="#4A3F9F")
 
     # ---- forcings: left axis, both series in W/m2 on ONE scale ----
-    lbl_co2 = ("CO$_2$ radiative forcing (ice core $\\to$ Mauna Loa), ref %d"
-               % FORCING_REF_YEAR)
-    lbl_sol = ("Solar radiative forcing = $\\Delta$TSI/4$\\times$(1-$\\alpha$), "
-               "11-yr mean, ref %d" % FORCING_REF_YEAR)
+    lbl_co2 = "CO$_2$ forcing (ice core $\\to$ Mauna Loa)"
+    lbl_sol = "Solar forcing, 11-yr mean"
     ax.plot(d["f_co2"].index, d["f_co2"].values, color=C_CO2, lw=2.6, label=lbl_co2)
     ov = d["f_co2_ice"].loc[d["splice_year"]:]
     ax.plot(ov.index, ov.values, color=C_CO2, lw=1.4, ls=(0, (5, 2)), alpha=0.85,
-            label="Law Dome ice core continues to %d - overlap, not a gap"
-                  % int(ov.index.max()))
+            label="Law Dome ice core to %d (overlap)" % int(ov.index.max()))
     ax.axvline(d["splice_year"], color=C_CO2, lw=0.9, ls=":", alpha=0.8)
     ax.annotate("splice: ice core to Mauna Loa, %d" % d["splice_year"],
                 xy=(d["splice_year"], float(d["f_co2"].loc[d["splice_year"]])),
@@ -748,7 +745,7 @@ def make_figure(d: dict, out: Path) -> None:
     # cycle is small in forcing terms and must stay that way; it just should not
     # be invisible.
     ax.plot(fr.index, fr.values, color="#C46A00", lw=1.15, alpha=0.75,
-            label="Solar forcing, raw 11-yr cycle (not filled: the ocean damps it)")
+            label="Solar forcing, raw 11-yr cycle")
     ax.axhline(0, color="#999999", lw=0.7, ls=":", zorder=0)
     ax.set_ylabel("Radiative forcing (W/m$^2$)  —  both curves, one scale", fontsize=10.5)
     ax.set_ylim(-0.62, 3.10)
@@ -757,15 +754,13 @@ def make_figure(d: dict, out: Path) -> None:
 
     # ---- temperatures: right axis ----
     axT.plot(d["nh"].index, d["nh"].values, color=C_REC, lw=1.5, alpha=0.9,
-             label="N. Hemisphere reconstruction (Neukom 2018, PAGES 2k proxies)")
+             label="N. Hemisphere reconstruction (Neukom 2018)")
     axT.plot(d["cet"].index, d["cet"].values, color=C_CET, lw=0.9, alpha=0.75,
-             label="HadCET - Central England ONLY, a region, not the globe")
+             label="HadCET - Central England ONLY, not the globe")
     axT.plot(d["hadcrut5"].index, d["hadcrut5"].values, color=C_GLB, lw=2.0,
              label="HadCRUT5 global mean surface temperature")
     axT.plot(d["uah"].index, d["uah"].values, color=C_SAT, lw=1.3, ls="--",
-             label=("UAH lower troposphere (different quantity; offset %+.2f K onto "
-                    "HadCRUT5 over %d-%d)"
-                    % (d["uah_offset"], d["uah_common"][0], d["uah_common"][1])))
+             label="UAH lower troposphere (offset %+.2f K)" % d["uah_offset"])
     axT.set_ylabel("Temperature anomaly (degC, wrt 1961-1990)", fontsize=10.5)
     axT.set_ylim(-2.7, 2.0)
 
@@ -800,8 +795,19 @@ def make_figure(d: dict, out: Path) -> None:
 
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = axT.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8.4, framealpha=0.94,
-              bbox_to_anchor=(0.005, 0.425))
+    ax.legend(h1 + h2, l1 + l2, loc="upper center", fontsize=8.6, framealpha=0.0,
+              bbox_to_anchor=(0.5, -0.085), ncol=4, columnspacing=2.4,
+              handlelength=2.6, borderpad=0.2)
+    ax.text(0.5, -0.170,
+            "All forcings referenced to %d (IPCC AR6 WG1 Ch.7). Temperatures are "
+            "anomalies wrt 1961-1990. The raw solar cycle is drawn but not filled: "
+            "the ocean damps it.\n"
+            "UAH is lower troposphere, not a surface record; its record starts 1979, "
+            "so it cannot be re-referenced to 1961-1990 and is offset onto HadCRUT5 "
+            "over %d-%d."
+            % (FORCING_REF_YEAR, d["uah_common"][0], d["uah_common"][1]),
+            transform=ax.transAxes, ha="center", va="top", fontsize=7.6,
+            color="#555555", linespacing=1.5)
 
     # ===================== bottom row =====================
 
