@@ -983,9 +983,11 @@ def make_figure(d: dict, out: Path) -> None:
     # ---- era shading, drawn from x-axis coordinates ----
     for name, y0, y1 in MINIMA:
         ax.axvspan(y0, y1, color="#6A5ACD", alpha=0.10, zorder=0)
-        ax.text((y0 + y1) / 2, 0.022, name + "\n" + str(y0) + "-" + str(y1),
+        ax.text((y0 + y1) / 2, 0.175, name + "\n" + str(y0) + "-" + str(y1),
                 transform=ax.get_xaxis_transform(), ha="center", va="bottom",
-                fontsize=8.5, color="#4A3F9F")
+                fontsize=8.5, color="#4A3F9F", zorder=7,
+                bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="none",
+                          alpha=0.82))
 
     # ---- forcings: left axis, both series in W/m2 on ONE scale ----
     lbl_co2 = "CO$_2$ forcing (ice core $\\to$ Mauna Loa)"
@@ -1000,13 +1002,32 @@ def make_figure(d: dict, out: Path) -> None:
                 xytext=(d["splice_year"] - 96, 0.92), fontsize=8.2, color=C_CO2,
                 arrowprops=dict(arrowstyle="->", color=C_CO2, lw=1.0),
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=C_CO2, alpha=0.9))
-    ax.plot(d["f_sol"].index, d["f_sol"].values, color=C_SOL, lw=2.6, label=lbl_sol)
+    ax.plot(d["f_sol"].index, d["f_sol"].values, color=C_SOL, lw=3.2, label=lbl_sol,
+            solid_capstyle="round", zorder=6)
     fr = (d["tsi_raw"] - float(d["tsi"].loc[FORCING_REF_YEAR])) * TSI_TO_FORCING
     # Line weight and opacity only -- the amplitude is untouched. The Schwabe
     # cycle is small in forcing terms and must stay that way; it just should not
     # be invisible.
-    ax.plot(fr.index, fr.values, color="#C46A00", lw=1.15, alpha=0.75,
+    ax.plot(fr.index, fr.values, color="#C46A00", lw=1.25, alpha=0.85, zorder=5,
             label="Solar forcing, raw 11-yr cycle")
+    # The solar term is small, and that IS the finding -- so mark the band it
+    # occupies instead of leaving the reader to hunt for a flat orange line near
+    # zero. The band edges come from the data, not from a chosen height: it is
+    # the full range of the raw cycle over the plotted period.
+    band_lo = float(min(fr.min(), d["f_sol"].min()))
+    band_hi = float(max(fr.max(), d["f_sol"].max()))
+    ax.axhspan(band_lo, band_hi, color=C_SOL, alpha=0.10, zorder=0)
+    ax.annotate(
+        "Everything the Sun does between 1600 and %d fits in this band:\n"
+        "%.2f W/m$^2$ tall. The CO$_2$ curve leaves it in %d and keeps rising.\n"
+        "Shown magnified 10x in the panel at bottom left."
+        % (int(d["f_sol"].index.max()), band_hi - band_lo,
+           int(d["f_co2"][d["f_co2"] > band_hi].index.min())),
+        xy=(1905, band_lo), xytext=(1712, -0.585), fontsize=8.6, va="bottom",
+        color="#7A4A00",
+        arrowprops=dict(arrowstyle="->", color=C_SOL, lw=1.2,
+                        connectionstyle="arc3,rad=0.15"),
+        bbox=dict(boxstyle="round,pad=0.35", fc="#FFF6E8", ec=C_SOL, alpha=0.96))
     ax.axhline(0, color="#999999", lw=0.7, ls=":", zorder=0)
     ax.set_ylabel("Radiative forcing (W/m$^2$)  —  both curves, one scale", fontsize=10.5)
     ax.set_ylim(-0.62, 3.10)
