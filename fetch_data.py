@@ -5,8 +5,8 @@ of climate_figure.py, reports the sha256 of what arrived, and compares it with
 the hash the pipeline expects.
 
 A hash mismatch is NOT an error here -- providers do reissue datasets. It is a
-signal to go and find out what changed before touching EXPECT. This script will
-never edit EXPECT for you.
+signal to go and find out what changed before touching MANIFEST. This script
+will never edit MANIFEST for you.
 
     python fetch_data.py            # fetch anything missing
     python fetch_data.py --force    # re-fetch everything
@@ -18,30 +18,14 @@ import argparse
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
-from climate_figure import CFG, DATA, EXPECT, sha256_of
+from climate_figure import CFG, DATA, MANIFEST, sha256_of
 
-# Exact file URLs, matching the MANIFEST entries one for one.
-URLS = {
-    "hadcet": "https://www.metoffice.gov.uk/hadobs/hadcet/data/"
-              "meantemp_monthly_totals.txt",
-    "hadcrut5": "https://www.metoffice.gov.uk/hadobs/hadcrut5/data/HadCRUT.5.0.2.0/"
-                "analysis/diagnostics/"
-                "HadCRUT.5.0.2.0.analysis.summary_series.global.annual.csv",
-    "uah_lt": "https://www.nsstc.uah.edu/data/msu/v6.1/tlt/uahncdc_lt_6.1.txt",
-    "co2_ice": "https://www.ncei.noaa.gov/pub/data/paleo/icecore/antarctica/law/"
-               "law2006.txt",
-    "co2_mlo": "https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_annmean_mlo.txt",
-    "tsi": "https://lasp.colorado.edu/lisird/latis/dap/nrl2_tsi_P1Y.csv",
-    "quelccaya": "https://www.ncei.noaa.gov/pub/data/paleo/icecore/trop/quelccaya/"
-                 "q83summ-noaa.txt",
-    "recon_nh": "https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/neukom2018/"
-                "Real_proxy_recons/NH.txt",
-    "recon_sh": "https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/neukom2018/"
-                "Real_proxy_recons/SH.txt",
-    "sunspots": "https://www.sidc.be/SILSO/DATA/SN_y_tot_V2.0.txt",
-}
+# URLs are NOT duplicated here. They come from MANIFEST in climate_figure.py, so
+# the documented source and the fetched source cannot drift apart -- an earlier
+# revision kept a private copy of this list and one entry silently disagreed with
+# the MANIFEST by a single character in the hostname.
+URLS = {key: MANIFEST[key]["file_url"] for key in CFG}
 
 # GloSAT is deliberately absent: it needs a free CEDA account and the figure uses
 # HadCRUT5 instead, labelled as HadCRUT5. Do not substitute one for the other.
@@ -80,16 +64,16 @@ def main() -> int:
             continue
 
         got = sha256_of(dest)
-        want = EXPECT[key]["sha256"]
+        want = MANIFEST[key]["sha256"]
         if got == want:
-            print(f"          sha256 matches EXPECT ({got[:12]})")
+            print(f"          sha256 matches MANIFEST ({got[:12]})")
             ok += 1
         else:
             print(f"          sha256 CHANGED\n"
                   f"            expected {want}\n"
                   f"            got      {got}\n"
                   f"          The provider reissued this dataset. Find out what "
-                  f"changed before updating EXPECT.")
+                  f"changed before updating MANIFEST.")
             changed += 1
 
     print(f"\n{ok} ok, {changed} changed, {failed} failed.")
