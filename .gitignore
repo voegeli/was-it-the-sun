@@ -2,3 +2,4 @@
 data/
 __pycache__/
 *.png
+!figure_climate_1600_2025.png

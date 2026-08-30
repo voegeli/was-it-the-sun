@@ -149,7 +149,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import Rectangle
 
 DATA = Path(__file__).parent / "data"
 SNAPSHOTS = DATA / "snapshots"
@@ -184,12 +183,14 @@ CFG = {
     "hadcrut5": {"file": "hadcrut5_annual.csv", "column": "Anomaly (deg C)"},
     "uah_lt": {"file": "uah_lt_6.1.txt", "column": "Globe"},
     "co2_ice": {"file": "law2006.txt", "column": "CO2spl"},
-    "co2_mlo": {"file": "co2_annmean_mlo.txt", "column": "mean"},
+    # co2_mlo, recon_* and sunspots are headerless; columns are positional and
+    # the loader comment records which. None disables the header check.
+    "co2_mlo": {"file": "co2_annmean_mlo.txt", "column": None},
     "tsi": {"file": "nrl2_tsi_P1Y.csv", "column": "irradiance (W/m^2)"},
     "quelccaya": {"file": "quelccaya_q83summ.txt", "column": "O18"},
-    "recon_nh": {"file": "neukom2018_NH.txt", "column": "ensemble median"},
-    "recon_sh": {"file": "neukom2018_SH.txt", "column": "ensemble median"},
-    "sunspots": {"file": "SN_y_tot_V2.0.txt", "column": "sn"},
+    "recon_nh": {"file": "neukom2018_NH.txt", "column": None},
+    "recon_sh": {"file": "neukom2018_SH.txt", "column": None},
+    "sunspots": {"file": "SN_y_tot_V2.0.txt", "column": None},
 }
 
 # ---------------------------------------------------------------------------
@@ -309,6 +310,27 @@ def resolve(key: str) -> tuple[Path, str | None]:
         f"{key}: no working copy at {live} and no snapshot under {snap_dir}. "
         f"Download it from the URL in the MANIFEST. Do not substitute another dataset."
     )
+
+
+def check_column(key: str, path: Path) -> None:
+    """Assert the column CFG names is really in the file's header.
+
+    Providers rename and reorder columns between releases. Without this the CFG
+    entry is documentation that can drift out of step with the loader, which is
+    the failure mode that puts the wrong series in the figure under the right
+    label.
+    """
+    col = CFG[key]["column"]
+    if col is None:  # headerless file; the loader reads by position
+        return
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        head = "".join(next(fh, "") for _ in range(250))
+    if col not in head:
+        raise DataError(
+            f"{key}: column {col!r} not found in the header of {path.name}. "
+            f"The provider may have renamed or reordered columns. Read the header "
+            f"and update CFG and the loader together -- do not guess."
+        )
 
 
 def check_manifest_completeness() -> None:
@@ -506,6 +528,7 @@ def load_all() -> tuple[dict[str, pd.Series], list[str]]:
     for key in CFG:
         path, snap_date = resolve(key)
         digest = sha256_of(path)
+        check_column(key, path)
         s = LOADERS[key](path).dropna().sort_index()
         s = s[(s.index >= XLIM[0] - 60) & (s.index <= XLIM[1])]
         validate(key, s, path, digest)
