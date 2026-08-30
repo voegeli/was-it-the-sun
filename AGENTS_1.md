@@ -145,6 +145,30 @@ depend on all of them being up at the same moment, so:
 - Volcanic markers (1783, 1809, 1815, 1883) are drawn from the x-axis. If a marker
   does not sit over its cooling dip, the axis mapping is broken — do not nudge the
   marker to compensate.
+- **Never plot raw TSI against temperature or against CO₂.** Solar irradiance in
+  W/m² at the top of the atmosphere is not a radiative forcing. The conversion is
+  `ΔTSI / 4 × (1 − α)`, roughly 0.175 — the Sun illuminates a cross-section πr²
+  while the Earth radiates from 4πr², and about 30 % is reflected. Plotting raw
+  ΔTSI overstates the solar term by a factor of about 5.7 on geometry alone. If a
+  panel shows TSI in its native units, it may not share an axis, a scale, or a
+  visual comparison with a forcing quantity.
+- **Axis spans carry an argument.** Two series drawn to the same height are read as
+  the same size, whatever the tick labels say. Any panel that puts solar and CO₂ on
+  a common visual scale must scale both in W/m² of forcing after conversion, and
+  the ratio of their plotted amplitudes must equal the ratio of their computed
+  forcings. Print both amplitudes in the QC table so the comparison is auditable
+  rather than a matter of how the figure looks.
+- **Do not scale a solar axis to the 11-year cycle.** The Schwabe cycle is the
+  largest amplitude in the TSI record and the smallest contributor to multidecadal
+  temperature — ocean thermal inertia damps it almost entirely. An axis stretched
+  to contain the cycle peaks inflates the apparent size of the multidecadal solar
+  signal, which is the part that carries the argument. Plot the cycle-averaged
+  series for any comparison against temperature or CO₂; if the raw cycle is shown,
+  it is a separate panel and is labelled as not climatically comparable.
+- **Do not fill under a high-frequency curve.** A filled area reads as quantity.
+  Filling the Schwabe cycle gives visual weight to the component with the least
+  climatic effect. Solid fills are reserved for series whose integral is the
+  quantity of interest.
 - Radiative forcing comparisons use a **single reference period**, currently
   1750–2019 per IPCC AR6 WG1 Ch.7. A solar term computed from 1600 is a different
   quantity and must be labelled as the deliberately most solar-favourable case, not
@@ -164,9 +188,19 @@ in each series. Differencing absolute anomalies of a regional and a global recor
 mostly measures the baseline offset between England and the globe, and will be
 called out as such.
 
+The second claim the figure makes is that the solar contribution is small compared
+with CO₂. That claim is undermined, not helped, by a chart that flatters it. Both
+forcings are computed in the run — CO₂ as `5.35 × ln(C/C₀)`, solar as
+`ΔTSI / 4 × (1 − α)` from the cycle-averaged series, over the same reference period
+— and both the numbers and the plotted amplitudes are reported. If our own figure
+draws solar larger than its computed forcing warrants, that is the same error as
+the source figure with the sign reversed, and it fails review.
+
 Any number that appears as text in the figure must be computed from the loaded data
 in the same run, not typed into a string literal. If a value cannot be computed, it
-does not go in the figure.
+does not go in the figure. This applies to the forcing ratio above: do not carry
+over 5.7, 0.175, 6.6 or any other factor from analysis notes or from this document
+into the figure as a literal. Compute it, or leave it out.
 
 ## Running
 
@@ -213,6 +247,9 @@ passed. This checklist covers only what a machine cannot check:
 - [ ] Opened the rendered PNG and looked at it. Shading bands and event markers sit
       where the x-axis says they should, not merely where they look plausible.
 - [ ] No label refers to a period outside the plotted x-range.
+- [ ] No raw TSI shares an axis or a visual scale with a forcing quantity.
+- [ ] The ratio of plotted solar to CO₂ amplitude matches the ratio of their
+      computed forcings, checked against the QC table rather than by eye.
 - [ ] Every annotated number traced back to the line of code that computed it.
 - [ ] No dataset silently substituted, and no series quietly dropped.
 - [ ] Splices, baseline re-referencing, and any regional-vs-global distinction are
