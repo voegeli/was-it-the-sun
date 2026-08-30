@@ -87,6 +87,24 @@ tsi
   Note:     Time axis is days since 1610-01-01, converted to calendar year in
             the loader. Absolute scale ~1361 W/m2.
 
+quelccaya
+  Quelccaya Ice Cap summit core, annual d18O, 744-1984 AD. Peru, 13.9S, 5670 m.
+  Thompson, Mosley-Thompson, Dansgaard & Grootes (1986) Science 234:361-364,
+  "The Little Ice Age as Recorded in the Stratigraphy of the Tropical Quelccaya
+  Ice Cap"; data updated 1992, NOAA template corrected 2015.
+  URL:      https://www.ncei.noaa.gov/access/paleo-search/study/2551
+  File:     https://www.ncei.noaa.gov/pub/data/paleo/icecore/trop/quelccaya/
+            q83summ-noaa.txt
+  Accessed: 2026-08-30
+  Note:     This is reference (3) of the source figure, cited there to support
+            the claim that the post-Maunder warming is "seen in many locations
+            globally". It is included so that claim can be tested against the
+            data rather than argued about.
+            d18O at a tropical ice cap is NOT a clean temperature proxy -- the
+            authors' own companion title is "A 1500-Year Record of Tropical
+            Precipitation" -- so it is plotted on its own axis in permil, never
+            on the temperature axis, and never converted to degrees.
+
 sunspots
   SILSO version 2.0 yearly mean total sunspot number, 1700-present.
   Clette & Lefevre (2016) Solar Physics 291:2629-2651.
@@ -143,6 +161,7 @@ CFG = {
     "co2_ice": {"file": "law2006.txt", "column": "CO2spl"},
     "co2_mlo": {"file": "co2_annmean_mlo.txt", "column": "mean"},
     "tsi": {"file": "nrl2_tsi_P1Y.csv", "column": "irradiance (W/m^2)"},
+    "quelccaya": {"file": "quelccaya_q83summ.txt", "column": "O18"},
     "sunspots": {"file": "SN_y_tot_V2.0.txt", "column": "sn"},
 }
 
@@ -196,6 +215,13 @@ EXPECT = {
         "sha256": "48bada9d40d3a86d21b87f4356defde899fe73825bd64ebf0a34f945ed16e16d",
         "value_range": (1358.0, 1364.0),
         "n_min": 400,
+    },
+    "quelccaya": {
+        "first_year": 1600,
+        "last_year_min": 1980,
+        "sha256": "feb80d6f979e2b9ec7cb4dfcb14c6353bf3dd2dae627d6ae8af1c0e53c8d67bc",
+        "value_range": (-30.0, -5.0),  # permil VSMOW, tropical high-altitude ice
+        "n_min": 350,
     },
     "sunspots": {
         "first_year": 1700,
@@ -335,6 +361,15 @@ def load_tsi(path: Path) -> pd.Series:
     return s[~s.index.duplicated(keep="first")]
 
 
+def load_quelccaya(path: Path) -> pd.Series:
+    df = pd.read_csv(path, sep="	", comment="#")
+    yr = pd.to_numeric(df["age_CE"], errors="coerce")
+    d18 = pd.to_numeric(df["O18"], errors="coerce")
+    ok = yr.notna() & d18.notna()
+    s = pd.Series(d18[ok].values, index=yr[ok].astype(int).values, dtype=float)
+    return s[~s.index.duplicated(keep="first")].sort_index()
+
+
 def load_sunspots(path: Path) -> pd.Series:
     df = pd.read_csv(path, sep=r"\s+", header=None, usecols=[0, 1], names=["y", "sn"])
     year = df["y"].astype(float).astype(int)
@@ -349,6 +384,7 @@ LOADERS = {
     "co2_ice": load_co2_ice,
     "co2_mlo": load_co2_mlo,
     "tsi": load_tsi,
+    "quelccaya": load_quelccaya,
     "sunspots": load_sunspots,
 }
 
